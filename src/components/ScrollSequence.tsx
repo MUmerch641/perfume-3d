@@ -43,6 +43,8 @@ export default function ScrollSequence() {
   const currentFrameRef = useRef(0);
   const currentChapterRef = useRef(-1);
   const renderRequestIdRef = useRef<number | null>(null);
+  const targetFrameRef = useRef(0);
+  const exactCurrentFrameRef = useRef(0);
   const hasStartedLoading = useRef(false);
 
   function renderFrame(frameIndex: number) {
@@ -244,7 +246,7 @@ export default function ScrollSequence() {
         trigger: containerRef.current,
         start: "top top",
         end: "bottom bottom",
-        scrub: 1,
+        scrub: 1.5,
       }
     });
 
@@ -252,46 +254,56 @@ export default function ScrollSequence() {
 
     tl.to(proxy, {
       frame: FRAME_COUNT - 1,
-      snap: "frame",
       ease: "none",
       onUpdate: () => {
-        const nextFrame = Math.round(proxy.frame);
-        if (currentFrameRef.current !== nextFrame) {
-          currentFrameRef.current = nextFrame;
-          if (renderRequestIdRef.current) {
-            cancelAnimationFrame(renderRequestIdRef.current);
-          }
-          renderRequestIdRef.current = requestAnimationFrame(() => {
-            renderFrame(currentFrameRef.current);
-          });
-        }
-        
-        // Handle chapter fading based on scroll
-        const chapter = Math.min(4, Math.floor(nextFrame / 80));
-        if (chapter !== currentChapterRef.current) {
-          const oldChapter = currentChapterRef.current;
-          currentChapterRef.current = chapter;
-          
-          if (oldChapter >= 0) {
-            gsap.to(`.chapter-${oldChapter}`, { autoAlpha: 0, y: -15, duration: 0.4, overwrite: true });
-          }
-          gsap.fromTo(`.chapter-${chapter}`, 
-            { autoAlpha: 0, y: 15 }, 
-            { autoAlpha: 1, y: 0, duration: 0.4, delay: 0.1, overwrite: true }
-          );
-          
-          document.querySelectorAll('.prog-indicator').forEach((el, idx) => {
-            if (idx === chapter) {
-              el.classList.remove('text-zinc-700');
-              el.classList.add('text-white');
-            } else {
-              el.classList.remove('text-white');
-              el.classList.add('text-zinc-700');
-            }
-          });
-        }
+        targetFrameRef.current = proxy.frame;
       }
     });
+
+    function renderLoop() {
+      const target = targetFrameRef.current;
+      let current = exactCurrentFrameRef.current;
+      const diff = target - current;
+
+      if (Math.abs(diff) > 0.01) {
+        const step = Math.sign(diff) * Math.min(Math.abs(diff) * 0.08, 4);
+        current += step;
+        exactCurrentFrameRef.current = current;
+
+        const drawIdx = Math.round(current);
+        if (currentFrameRef.current !== drawIdx) {
+          currentFrameRef.current = drawIdx;
+          renderFrame(drawIdx);
+
+          const chapter = Math.min(4, Math.floor(drawIdx / 80));
+          if (chapter !== currentChapterRef.current) {
+            const oldChapter = currentChapterRef.current;
+            currentChapterRef.current = chapter;
+            
+            if (oldChapter >= 0) {
+              gsap.to(`.chapter-${oldChapter}`, { autoAlpha: 0, y: -15, duration: 0.4, overwrite: true });
+            }
+            gsap.fromTo(`.chapter-${chapter}`, 
+              { autoAlpha: 0, y: 15 }, 
+              { autoAlpha: 1, y: 0, duration: 0.4, delay: 0.1, overwrite: true }
+            );
+            
+            document.querySelectorAll('.prog-indicator').forEach((el, idx) => {
+              if (idx === chapter) {
+                el.classList.remove('text-zinc-700');
+                el.classList.add('text-white');
+              } else {
+                el.classList.remove('text-white');
+                el.classList.add('text-zinc-700');
+              }
+            });
+          }
+        }
+      }
+      renderRequestIdRef.current = requestAnimationFrame(renderLoop);
+    }
+
+    renderRequestIdRef.current = requestAnimationFrame(renderLoop);
 
     return () => {
       window.removeEventListener("resize", handleResize);
@@ -304,7 +316,7 @@ export default function ScrollSequence() {
   }, []);
 
   return (
-    <div ref={containerRef} className="relative h-[950vh] w-full bg-black text-white">
+    <div ref={containerRef} className="relative h-[1200vh] w-full bg-black text-white">
       {isLoading && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black text-white transition-opacity duration-500">
           <p className="mb-4 text-sm md:text-base uppercase tracking-widest text-zinc-400">Preparing the experience</p>
